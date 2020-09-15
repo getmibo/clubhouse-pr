@@ -29,3 +29,4 @@ uses: actions/clubhouse-pr@v1
 with:
   ghToken: ${{ secrets.GITHUB_TOKEN }}
 ```
+
