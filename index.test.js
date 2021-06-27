@@ -85,6 +85,30 @@ describe('Update Pull Request', () => {
   });
 
   describe('getStoryIds', () => {
+    test('foobar1', () => {
+      const pullRequest = {
+        head: { ref: 'feature/ch123-foobar' },
+        title: 'ch123 foobar',
+        body: 'Working on ch-122 also',
+      };
+      expect(action.getStoryIds(pullRequest)).toEqual({
+        mainStoryId: '123',
+        missingFromPrTitle: ['122'],
+      });
+    });
+
+    test('foobar2', () => {
+      const pullRequest = {
+        head: { ref: 'feature/link-tickets-to-pr' },
+        title: '-',
+        body: '- ch-1161',
+      };
+      expect(action.getStoryIds(pullRequest)).toEqual({
+        mainStoryId: '1161',
+        missingFromPrTitle: ['1161'],
+      });
+    });
+
     test('should return storyIds from branchName', () => {
       const { pull_request: pullRequest } = github.context.payload;
       expect(action.getStoryIds(pullRequest)).toEqual(['1']);

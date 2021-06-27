@@ -1,11 +1,16 @@
 # ClubHouse Pull Request Github Action
 
-[![code style: prettier](https://img.shields.io/badge/code_style-prettier-ff69b4.svg?style=flat-square)](https://github.com/prettier/prettier)
-![Test](https://github.com/farmersdog/clubhouse-pr/workflows/Test/badge.svg)
+This Action does 3 things:
 
-Automatically update your Github Pull Request with data from your clubhouse story in the format: `(feat) Some Feature [ch123]`. Also adds the clubhouse story's URL to the beginning of the body of your PR.
+- Puts all Clubhouse stories mentioned in the branch name and PR body in the PR title
+- It labels the PR with the story type in Clubhouse (of the first detected story)
+- When you open a PR with `-` as the title it will replace it with the Clubhouse story title
 
-This action is configured to extract the clubhouse story id form either the branch or title. It works best if you use the builtin [git helpers](https://help.clubhouse.io/hc/en-us/articles/207540323-Using-Branches-and-Pull-Requests-with-the-Clubhouse-VCS-Integrations) to generate your branch names.
+## Why?
+
+Because we use [release-drafter](https://github.com/release-drafter/release-drafter) to draft release notes based on the PR titles and labels.
+
+By labeling the PR we can categorize our PRs. By mentioning the Clubhouse tickets in the release notes we create a link between the release and the Clubhouse ticket, also we can move tickets automatically when the release is published using [clubhouse-workflow-action](https://github.com/getmibo/clubhouse-workflow-action).
 
 ## Inputs
 
@@ -17,23 +22,7 @@ This action is configured to extract the clubhouse story id form either the bran
 
 **Required** Clubhouse API Token
 
-### `addStoryType`
-
-**Optional** Boolean to enable or disable prepending the story type to the PR title
-
 **Default** `true`
-
-### `useStoryNameTrigger`
-
-**Optional** When a PR is opened with this string as the title, fetch the story name from clubhouse
-
-**Default** `ch`
-
-## Outputs
-
-### `prTitle`
-
-The title of the pull request
 
 ## Development
 
@@ -54,7 +43,7 @@ on:
 ```
 
 ```
-uses: actions/clubhouse-pr@v2
+uses: getmibo/clubhouse-pr@master
 with:
   ghToken: ${{ secrets.GITHUB_TOKEN }}
   chToken: ${{ secrets.CLUBHOUSE_API_TOKEN }}
@@ -62,7 +51,7 @@ with:
 
 ## Example Transformations
 
-The below assumes we are working on a clubhouse story with the following parameters
+The below assumes we are working on a Clubhouse story with the following parameters
 
 Name: `A cool new feature`
 

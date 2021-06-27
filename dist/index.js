@@ -8,10 +8,11 @@ module.exports =
 "use strict";
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   "formatMatches": () => /* binding */ formatMatches,
+/* harmony export */   "extractStoryIds": () => /* binding */ extractStoryIds,
 /* harmony export */   "getStoryIds": () => /* binding */ getStoryIds,
 /* harmony export */   "getClubhouseStory": () => /* binding */ getClubhouseStory,
-/* harmony export */   "getTitle": () => /* binding */ getTitle,
+/* harmony export */   "generatePrTitle": () => /* binding */ generatePrTitle,
+/* harmony export */   "generatePrBody": () => /* binding */ generatePrBody,
 /* harmony export */   "fetchStoryAndUpdatePr": () => /* binding */ fetchStoryAndUpdatePr,
 /* harmony export */   "run": () => /* binding */ run
 /* harmony export */ });
@@ -19,57 +20,74 @@ const core = __webpack_require__(2186);
 const github = __webpack_require__(5438);
 const Clubhouse = __webpack_require__(6986);
 
-function formatMatches(matches) {
-  const values = [];
-
-  matches.forEach((match) => {
-    const regex = /\D/g;
-    const formattedMatch = match.replace(regex, '');
-    values.push(formattedMatch);
-  });
-
-  return values;
+/**
+ * Finds all clubhouse story IDs in some string content.
+ *
+ * @param {string} content - content that may contain story IDs.
+ * @return {Array} - Clubhouse story IDs 1-7 digit strings.
+ */
+function extractStoryIds(content) {
+  const regex = /(?<=ch|ch-)\d{1,7}/gi;
+  const all = content.match(regex);
+  const unique = [...new Set(all)];
+  return unique;
 }
 
 function getStoryIds(pullRequest) {
-  const branchName = pullRequest.head.ref;
-  // Only when a Github user formats their branchName as: text/ch123/something
-  const branchStoryIds = branchName.match(/\/(ch)(\d+)\//g);
-  const prTitle = pullRequest.title;
-  // Github user can enter CH story ID in either format: '[ch123]' or 'ch123':
-  const prTitleStoryIds = prTitle.match(/(?<=ch)\d+/g);
-  // Github user can include more than one CH story ID
-  let storyIds = '';
+  core.info(`Branch Name: ${pullRequest.head.ref}`);
+  core.info(`PR Title: ${pullRequest.title}`);
+  core.info(`PR Body: ${pullRequest.body}`);
 
-  core.info(`Branch Name: ${branchName}`);
-  core.info(`PR Title: ${prTitle}`);
-
-  if (branchStoryIds) {
-    storyIds = formatMatches(branchStoryIds);
-
-    core.info(`Found Clubhouse ID(s) in Branch Name: ${storyIds.join(', ')}`);
-
-    return storyIds;
+  // Look for ch123 or ch-123 in the branch name
+  const branchStoryIds = extractStoryIds(pullRequest.head.ref);
+  if (branchStoryIds.length) {
+    core.info(
+      `Found Clubhouse ID(s) in Branch Name: ${branchStoryIds.join(', ')}`
+    );
   }
 
-  if (prTitleStoryIds) {
-    storyIds = prTitleStoryIds;
-
-    core.info(`Found Clubhouse ID(s) in PR Title: ${storyIds.join(', ')}`);
-
-    return storyIds;
+  // Look for ch123 or ch-123 in the PR title
+  const prTitleStoryIds = extractStoryIds(pullRequest.title);
+  if (prTitleStoryIds.length) {
+    core.info(
+      `Found Clubhouse ID(s) in PR Title: ${prTitleStoryIds.join(', ')}`
+    );
   }
 
-  return core.setFailed(
-    'Action failed to find a Clubhouse ID in both the branch name and PR title.'
+  // Look for ch123 or ch-123 in the PR body
+  const prBodyStoryIds = extractStoryIds(pullRequest.body);
+  if (prBodyStoryIds.length) {
+    core.info(`Found Clubhouse ID(s) in PR Body: ${prBodyStoryIds.join(', ')}`);
+  }
+
+  const mainStoryId = [
+    ...prTitleStoryIds,
+    ...prBodyStoryIds,
+    ...branchStoryIds,
+  ][0];
+  const missingFromPrTitle = [
+    ...new Set(
+      [...prBodyStoryIds, ...branchStoryIds].filter(
+        (x) => !prTitleStoryIds.includes(x)
+      )
+    ),
+  ];
+
+  core.info(`Concluded that main story is: ${mainStoryId}`);
+  core.info(
+    `Concluded that missing from PR title: ${missingFromPrTitle.join(', ')}`
   );
+  return {
+    mainStoryId,
+    missingFromPrTitle,
+  };
 }
 
-async function getClubhouseStory(client, storyIds) {
+async function getClubhouseStory(client, storyId) {
   // Even if there's more than one storyId, fetch only first story name:
   try {
     return client
-      .getStory(storyIds[0])
+      .getStory(storyId)
       .then((res) => res)
       .catch((err) => err.response);
   } catch (error) {
@@ -83,9 +101,7 @@ async function updatePullRequest(ghToken, pullRequest, repository, metadata) {
     name: repo,
     owner: { login },
   } = repository;
-  const { title, url } = metadata;
-  const originalBody = pullRequest.body;
-  const body = `Story Details: ${url} \n \n${originalBody}`;
+  const { title, body } = metadata;
 
   try {
     core.info(`Updating Title: ${title}`);
@@ -101,39 +117,64 @@ async function updatePullRequest(ghToken, pullRequest, repository, metadata) {
   }
 }
 
-function getTitle(storyIds, story, prTitle, useStoryNameTrigger, addStoryType) {
-  const formattedStoryIds = storyIds.map((id) => `[ch${id}]`).join(' ');
-  const basePrTitle = prTitle === useStoryNameTrigger ? story.name : prTitle;
-  const typePrefix = addStoryType ? `(${story.story_type}) ` : '';
-  const newTitle = `${typePrefix}${basePrTitle} ${formattedStoryIds}`;
+async function addLabels(ghToken, pullRequest, repository, metadata) {
+  const octokit = github.getOctokit(ghToken);
+  const {
+    name: repo,
+    owner: { login },
+  } = repository;
+  const { labels } = metadata;
+
+  try {
+    core.info(`Updating labels: ${labels}`);
+    return await octokit.issues.addLabels({
+      repo,
+      owner: login,
+      issue_number: pullRequest.number,
+      labels,
+    });
+  } catch (error) {
+    return core.setFailed(error);
+  }
+}
+
+function generatePrTitle(storyIds, story, prTitle) {
+  const formattedStoryIds = storyIds.map((id) => `[ch-${id}]`).join(' ');
+  const basePrTitle = prTitle === '-' ? story.name : prTitle;
+  const newTitle = `${basePrTitle} ${formattedStoryIds}`.trim();
   return newTitle;
 }
 
+function generatePrBody(prBody) {
+  const regexp = /(?<!\[)(ch-?\d{1,7})(?!\])/gi;
+  return prBody.replace(regexp, '[$1]');
+}
+
 async function fetchStoryAndUpdatePr(params) {
-  const {
-    ghToken,
-    chToken,
-    addStoryType,
-    useStoryNameTrigger,
-    pullRequest,
-    repository,
-    dryRun,
-  } = params;
-  const client = Clubhouse.create(chToken);
+  const { ghToken, chToken, pullRequest, repository, dryRun } = params;
   const storyIds = getStoryIds(pullRequest);
-  const story = await getClubhouseStory(client, storyIds);
-  const newTitle = getTitle(
-    storyIds,
-    story,
-    pullRequest.title,
-    useStoryNameTrigger,
-    addStoryType
+  if (!storyIds.mainStoryId) {
+    // No stories found at all
+    core.info('No Clubhouse ID(s) found');
+    return pullRequest.title;
+  }
+
+  const client = Clubhouse.create(chToken);
+  const mainStory = await getClubhouseStory(client, storyIds.mainStoryId);
+  const newTitle = generatePrTitle(
+    storyIds.missingFromPrTitle,
+    mainStory,
+    pullRequest.title
   );
+  const newBody = generatePrBody(pullRequest.body);
 
   if (!dryRun) {
     await updatePullRequest(ghToken, pullRequest, repository, {
       title: newTitle,
-      url: story.app_url,
+      body: newBody,
+    });
+    await addLabels(ghToken, pullRequest, repository, {
+      labels: [mainStory.story_type],
     });
   }
 
@@ -158,18 +199,15 @@ async function run() {
     core.setSecret('chToken');
 
     const { pull_request: pullRequest, repository } = github.context.payload;
-    const params = {
+    await fetchStoryAndUpdatePr({
       ghToken,
       chToken,
-      addStoryType: core.getInput('addStoryType'),
-      useStoryNameTrigger: core.getInput('useStoryNameTrigger'),
       pullRequest,
       repository,
       dryRun: false,
-    };
-    const prTitle = await fetchStoryAndUpdatePr(params);
+    });
 
-    return core.setOutput('prTitle', prTitle);
+    return {};
   } catch (error) {
     return core.setFailed(error.message);
   }
