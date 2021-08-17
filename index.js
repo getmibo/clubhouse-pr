@@ -9,6 +9,7 @@ const Clubhouse = require('clubhouse-lib');
  * @return {Array} - Clubhouse story IDs 1-7 digit strings.
  */
 function extractStoryIds(content) {
+  if (!content) { return []; }
   const regex = /(?<=ch|ch-)\d{1,7}/gi;
   const all = content.match(regex);
   const unique = [...new Set(all)];
